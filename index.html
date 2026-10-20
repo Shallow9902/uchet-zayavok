@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#4f6ef7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Учёт заявок">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="./icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<title>Учёт заявок</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2f4f8;
+    color: #1a1a1a;
+    min-height: 100vh;
+    padding: calc(16px + env(safe-area-inset-top, 0px))
+             calc(16px + env(safe-area-inset-right, 0px))
+             calc(16px + env(safe-area-inset-bottom, 0px))
+             calc(16px + env(safe-area-inset-left, 0px));
+  }
+  .container { max-width: 500px; margin: 0 auto; }
+
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    margin-bottom: 16px;
+  }
+
+  h1 { font-size: 22px; margin-bottom: 4px; text-align: center; }
+  .subtitle { text-align: center; color: #777; font-size: 14px; margin-bottom: 20px; }
+
+  input, textarea, select {
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    border: 1.5px solid #e0e3ea;
+    border-radius: 12px;
+    background: #fafbfd;
+    margin-bottom: 12px;
+    font-family: inherit;
+    outline: none;
+    transition: border 0.2s;
+  }
+  input:focus, textarea:focus, select:focus { border-color: #4f6ef7; background: #fff; }
+
+  button {
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    border: none;
+    border-radius: 12px;
+    background: #4f6ef7;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  button:active { background: #3a58e0; }
+  button.secondary { background: #eef1f8; color: #4f6ef7; }
+  button.danger { background: #ff5c5c; }
+  button.small { width: auto; padding: 8px 14px; font-size: 14px; }
+
+  .link {
+    text-align: center;
+    margin-top: 14px;
+    color: #4f6ef7;
+    font-size: 14px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .header h2 { font-size: 18px; }
+  .user-badge { font-size: 12px; color: #777; }
+
+  .ticket {
+    background: #fff;
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 10px;
+    border-left: 4px solid #4f6ef7;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .ticket.done { border-left-color: #34c759; opacity: 0.75; }
+  .ticket .title { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  .ticket .desc { font-size: 14px; color: #555; margin-bottom: 8px; word-wrap: break-word; }
+  .ticket .meta { font-size: 11px; color: #999; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .ticket .actions { display: flex; gap: 8px; margin-top: 8px; }
+
+  .empty {
+    text-align: center;
+    color: #999;
+    padding: 30px 10px;
+    font-size: 14px;
+  }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tabs button {
+    background: #eef1f8;
+    color: #666;
+    font-size: 13px;
+    padding: 8px;
+  }
+  .tabs button.active { background: #4f6ef7; color: #fff; }
+
+  .error { color: #ff3b30; font-size: 13px; text-align: center; margin-bottom: 8px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="container" id="app"></div>
+
+<script>
+// ===== ХРАНИЛИЩЕ =====
+const DB = {
+  get users() { return JSON.parse(localStorage.getItem('users') || '[]'); },
+  set users(v) { localStorage.setItem('users', JSON.stringify(v)); },
+  get tickets() { return JSON.parse(localStorage.getItem('tickets') || '[]'); },
+  set tickets(v) { localStorage.setItem('tickets', JSON.stringify(v)); },
+  get current() { return JSON.parse(localStorage.getItem('current') || 'null'); },
+  set current(v) { localStorage.setItem('current', JSON.stringify(v)); }
+};
+
+const app = document.getElementById('app');
+let filter = 'all';
+
+// ===== РЕНДЕР =====
+function render() {
+  const user = DB.current;
+  if (!user) return renderAuth();
+  renderMain(user);
+}
+
+// --- ЭКРАН АВТОРИЗАЦИИ ---
+let authMode = 'login';
+function renderAuth() {
+  app.innerHTML = `
+    <div class="card">
+      <h1>📋 Учёт заявок</h1>
+      <p class="subtitle">${authMode === 'login' ? 'Вход в систему' : 'Регистрация'}</p>
+      <div class="error" id="err"></div>
+      <input type="text" id="username" placeholder="Логин" autocomplete="username">
+      <input type="password" id="password" placeholder="Пароль" autocomplete="current-password">
+      ${authMode === 'register' ? '<input type="password" id="password2" placeholder="Повторите пароль">' : ''}
+      <button id="submitBtn">${authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}</button>
+      <div class="link" id="switchMode">
+        ${authMode === 'login' ? 'Нет аккаунта? Зарегистрироваться' : 'Уже есть аккаунт? Войти'}
+      </div>
+    </div>
+  `;
+  document.getElementById('switchMode').onclick = () => {
+    authMode = authMode === 'login' ? 'register' : 'login';
+    renderAuth();
+  };
+  document.getElementById('submitBtn').onclick = handleAuth;
+  document.getElementById('password').addEventListener('keydown', e => {
+    if (e.key === 'Enter') handleAuth();
+  });
+}
+
+function handleAuth() {
+  const err = document.getElementById('err');
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  err.textContent = '';
+
+  if (!username || !password) { err.textContent = 'Заполните все поля'; return; }
+  if (username.length < 3) { err.textContent = 'Логин минимум 3 символа'; return; }
+  if (password.length < 4) { err.textContent = 'Пароль минимум 4 символа'; return; }
+
+  const users = DB.users;
+
+  if (authMode === 'register') {
+    const password2 = document.getElementById('password2').value;
+    if (password !== password2) { err.textContent = 'Пароли не совпадают'; return; }
+    if (users.find(u => u.username === username)) { err.textContent = 'Такой логин уже занят'; return; }
+    users.push({ username, password });
+    DB.users = users;
+    DB.current = { username };
+    render();
+  } else {
+    const u = users.find(u => u.username === username && u.password === password);
+    if (!u) { err.textContent = 'Неверный логин или пароль'; return; }
+    DB.current = { username: u.username };
+    render();
+  }
+}
+
+// --- ГЛАВНЫЙ ЭКРАН ---
+function renderMain(user) {
+  const allTickets = DB.tickets;
+  const myTickets = allTickets.filter(t => t.author === user.username);
+  let list = myTickets;
+  if (filter === 'active') list = myTickets.filter(t => !t.done);
+  if (filter === 'done') list = myTickets.filter(t => t.done);
+
+  app.innerHTML = `
+    <div class="header">
+      <div>
+        <h2>Мои заявки</h2>
+        <div class="user-badge">👤 ${escapeHtml(user.username)}</div>
+      </div>
+      <button class="secondary small" id="logout">Выйти</button>
+    </div>
+
+    <div class="card">
+      <input type="text" id="newTitle" placeholder="Тема заявки" maxlength="80">
+      <textarea id="newDesc" placeholder="Описание проблемы..." rows="3" maxlength="400"></textarea>
+      <button id="addBtn">+ Добавить заявку</button>
+    </div>
+
+    <div class="tabs">
+      <button data-f="all" class="${filter==='all'?'active':''}">Все (${myTickets.length})</button>
+      <button data-f="active" class="${filter==='active'?'active':''}">Активные (${myTickets.filter(t=>!t.done).length})</button>
+      <button data-f="done" class="${filter==='done'?'active':''}">Выполнены (${myTickets.filter(t=>t.done).length})</button>
+    </div>
+
+    <div id="ticketsList">
+      ${list.length === 0 ? '<div class="empty">Заявок пока нет</div>' : list.map(renderTicket).join('')}
+    </div>
+  `;
+
+  document.getElementById('logout').onclick = () => {
+    DB.current = null;
+    render();
+  };
+
+  document.getElementById('addBtn').onclick = () => {
+    const title = document.getElementById('newTitle').value.trim();
+    const desc = document.getElementById('newDesc').value.trim();
+    if (!title) { alert('Введите тему заявки'); return; }
+    const tickets = DB.tickets;
+    tickets.unshift({
+      id: Date.now() + Math.random(),
+      title,
+      desc: desc || '—',
+      author: user.username,
+      done: false,
+      date: new Date().toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
+    });
+    DB.tickets = tickets;
+    render();
+  };
+
+  document.querySelectorAll('.tabs button').forEach(btn => {
+    btn.onclick = () => { filter = btn.dataset.f; render(); };
+  });
+
+  // Обработчики на карточках
+  document.querySelectorAll('[data-action]').forEach(el => {
+    el.onclick = () => {
+      const id = parseFloat(el.dataset.id);
+      const tickets = DB.tickets;
+      const t = tickets.find(x => x.id === id);
+      if (!t) return;
+      if (el.dataset.action === 'toggle') t.done = !t.done;
+      if (el.dataset.action === 'delete') {
+        if (!confirm('Удалить заявку?')) return;
+        const idx = tickets.findIndex(x => x.id === id);
+        tickets.splice(idx, 1);
+      }
+      DB.tickets = tickets;
+      render();
+    };
+  });
+}
+
+function renderTicket(t) {
+  return `
+    <div class="ticket ${t.done ? 'done' : ''}">
+      <div class="title">${escapeHtml(t.title)}</div>
+      <div class="desc">${escapeHtml(t.desc)}</div>
+      <div class="meta">
+        <span>${t.date}</span>
+        <span>${t.done ? '✅ Выполнена' : '⏳ В работе'}</span>
+      </div>
+      <div class="actions">
+        <button class="secondary small" data-action="toggle" data-id="${t.id}">
+          ${t.done ? 'Вернуть' : 'Выполнено'}
+        </button>
+        <button class="danger small" data-action="delete" data-id="${t.id}">Удалить</button>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+render();
+
+// Сохраняем интерфейс для работы без интернета после первого открытия.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch((error) => {
+      console.warn('Не удалось включить офлайн-режим:', error);
+    });
+  });
+}
+</script>
+</body>
+</html>
